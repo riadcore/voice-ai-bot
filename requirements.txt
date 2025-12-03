@@ -5,3 +5,4 @@ pydub
 TTS
 groq
 gunicorn
+python-dotenv
