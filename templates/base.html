@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Shirt Order Voice Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+
+    <nav class="topbar">
+      <div class="brand">Shirt Order Voice Bot</div>
+      <div class="nav-links">
+        <a href="{{ url_for('index') }}">Orders</a>
+        <a href="{{ url_for('local_bot') }}">Local Voice Bot</a>
+      </div>
+    </nav>
+
+
+    <main class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-wrapper">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

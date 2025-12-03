@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Call Started</h1>
+  <p>Order ID: <strong>{{ order.id }}</strong></p>
+  <p>SignalWire Call SID: <code>{{ call_sid }}</code></p>
+  <p>The system will now speak with the customer in Bangla.</p>
+
+  <p style="margin-top:15px;">
+    <a href="{{ url_for('order_detail', order_id=order.id) }}">← Back to order</a>
+  </p>
+</section>
+{% endblock %}

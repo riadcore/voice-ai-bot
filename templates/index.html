@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Create New Order from Customer Message</h1>
+
+<form method="post">
+  <label for="order_text">Customer message (Bangla / English):</label>
+  <textarea id="order_text" name="order_text" rows="7" required></textarea>
+
+  <label for="phone_manual" style="margin-top:10px;">
+    Customer phone number (optional override, e.g. 01712345678 or +8801712345678):
+  </label>
+  <input
+    id="phone_manual"
+    name="phone_manual"
+    type="text"
+    placeholder="017xxxxxxxx"
+    style="width:100%;padding:8px;border-radius:6px;border:1px solid #d1d5db;margin-top:4px;"
+  />
+
+  <button type="submit">Parse & Create Order</button>
+</form>
+
+<p style="margin-top:15px;">
+  Or you can <a href="{{ url_for('local_bot') }}">talk directly with the local voice bot</a>
+  without creating an order.
+</p>
+
+
+
+
+
+</section>
+
+{% if orders %}
+<section class="card">
+  <h2>Existing Orders</h2>
+  <table class="orders">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Customer</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td>{{ o.id }}</td>
+        <td>{{ o.parsed.customer_name or "N/A" }}</td>
+        <td>{{ o.status }}</td>
+        <td>{{ o.created_at }}</td>
+        <td><a href="{{ url_for('order_detail', order_id=o.id) }}">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

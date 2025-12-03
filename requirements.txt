@@ -1,0 +1,7 @@
+Flask
+Flask-Cors
+signalwire
+pydub
+TTS
+groq
+gunicorn

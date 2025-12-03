@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Order #{{ order.id }}</h1>
+
+  <h2>Parsed Details</h2>
+  <pre>{{ order.parsed | tojson(indent=2) }}</pre>
+
+  <h2>Bangla Call Script</h2>
+  <p class="script">{{ order.script }}</p>
+
+  <h2>Status</h2>
+  <p>
+    Current status:
+    <strong>{{ order.status }}</strong>
+  </p>
+
+  {% if order.last_result %}
+  <h3>Last Call Result</h3>
+  <pre>{{ order.last_result | tojson(indent=2) }}</pre>
+  {% endif %}
+
+  <!-- Call via SignalWire -->
+  <form
+    action="{{ url_for('start_call', order_id=order.id) }}"
+    method="post"
+    style="margin-top: 20px;"
+  >
+    <button type="submit" class="btn btn-primary">
+      Call customer (SignalWire)
+    </button>
+  </form>
+
+
+
+  <!-- Local voice interaction via laptop bot -->
+  <p style="margin-top: 15px;">
+    <a href="{{ url_for('local_interact', order_id=order.id) }}" class="btn btn-secondary">
+      🎙 Talk via laptop bot (mic + speaker)
+    </a>
+  </p>
+
+  <!-- Back to orders list -->
+  <p style="margin-top: 15px;">
+    <a href="{{ url_for('index') }}">← Back to orders</a>
+  </p>
+</section>
+{% endblock %}

@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <title>Local Voice Bot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 20px auto;
+    }
+    #controls {
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 8px 16px;
+      margin-right: 8px;
+      border: none;
+      border-radius: 4px;
+      background: #1e88e5;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:disabled {
+      background: #9e9e9e;
+      cursor: default;
+    }
+    #status {
+      margin-top: 8px;
+      font-size: 14px;
+      color: #555;
+    }
+    #log {
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      max-height: 250px;
+      overflow-y: auto;
+      background: #fafafa;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .user {
+      color: #0d47a1;
+    }
+    .bot {
+      color: #1b5e20;
+    }
+  </style>
+</head>
+<body>
+  <h2>Local Bangla Voice Bot</h2>
+
+  <div id="controls">
+    <button id="startBtn">Start</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <div id="status">Click <b>Start</b> to begin conversation.</div>
+  </div>
+
+  <div id="log"></div>
+
+  <script>
+    // ===== Global state =====
+    let isRunning = false;
+    let recognition = null;
+    let audioPlayer = new Audio();
+    let messages = [];  // full conversation history
+    let waitingForBot = false;
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+
+    // ===== Helpers for UI =====
+    function appendLog(role, text) {
+      const div = document.createElement("div");
+      div.className = role === "user" ? "user" : "bot";
+      const prefix = role === "user" ? "👤 You:" : "🤖 Bot:";
+      div.innerHTML = `<b>${prefix}</b> ${text}`;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // ===== Init Speech Recognition =====
+    function initRecognition() {
+      if (recognition) return;
+
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        statusEl.innerText = "Your browser does not support SpeechRecognition.";
+        return;
+      }
+
+      recognition = new SR();
+      recognition.lang = "bn-BD";          // Bangla
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        statusEl.innerText = "🎙️ Listening...";
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Recognition error:", event.error);
+        statusEl.innerText = "Speech error: " + event.error;
+        // Try to continue if still running and not waiting for bot
+        if (isRunning && !waitingForBot) {
+          setTimeout(() => {
+            try { recognition.start(); } catch (e) { console.warn(e); }
+          }, 1000);
+        }
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.trim();
+        console.log("User said:", transcript);
+        appendLog("user", transcript);
+
+        recognition.stop();  // stop while bot is thinking/speaking
+        sendToBot(transcript);
+      };
+
+      recognition.onend = () => {
+        // We don't restart here directly; we restart after bot finishes speaking.
+        if (isRunning && !waitingForBot) {
+          // small delay before next listen
+          setTimeout(() => {
+            try { recognition.start(); } catch (e) { console.warn(e); }
+          }, 500);
+        }
+      };
+    }
+
+    function startRecognitionLoop() {
+      if (!recognition) return;
+      waitingForBot = false;
+      try { recognition.start(); } catch (e) { console.warn(e); }
+    }
+
+    // ===== First welcome message from bot (speaks first) =====
+    async function playWelcomeFromBot() {
+      waitingForBot = true;
+      statusEl.innerText = "🤖 Bot is introducing...";
+
+      try {
+        const res = await fetch("/api/local_bot_welcome");
+        const data = await res.json();
+
+        const botText = data.reply || "";
+        const audioUrl = data.audio_url || null;
+
+        if (botText) {
+          appendLog("bot", botText);
+          messages.push({ role: "assistant", content: botText });
+        }
+
+        if (audioUrl) {
+          audioPlayer.src = audioUrl;
+          await new Promise((resolve) => {
+            audioPlayer.onended = resolve;
+            audioPlayer.play().catch((e) => {
+              console.warn("Audio play error:", e);
+              resolve();
+            });
+          });
+        }
+      } catch (err) {
+        console.error("Welcome fetch error:", err);
+        statusEl.innerText = "Network error in welcome message.";
+      } finally {
+        waitingForBot = false;
+      }
+    }
+
+    // ===== Send user text to backend and play bot audio =====
+    async function sendToBot(userText) {
+      if (!userText) return;
+      waitingForBot = true;
+      statusEl.innerText = "🤖 Bot is thinking...";
+
+      // update conversation history
+      messages.push({ role: "user", content: userText });
+
+      try {
+        const res = await fetch("/api/local_bot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: messages })
+        });
+
+        const data = await res.json();
+        if (data.error) {
+          console.error("Bot error:", data.error);
+          statusEl.innerText = "Bot error: " + data.error;
+          waitingForBot = false;
+          return;
+        }
+
+        const botReply = data.reply || "";
+        const audioUrl = data.audio_url;
+
+        if (botReply) {
+          messages.push({ role: "assistant", content: botReply });
+          appendLog("bot", botReply);
+        }
+
+        if (audioUrl) {
+          audioPlayer.src = audioUrl;
+          audioPlayer.play();
+          audioPlayer.onended = () => {
+            waitingForBot = false;
+            if (isRunning && recognition) {
+              statusEl.innerText = "🎙️ Listening...";
+              try { recognition.start(); } catch (e) { console.warn(e); }
+            }
+          };
+        } else {
+          // if no audio, just continue listening
+          waitingForBot = false;
+          if (isRunning && recognition) {
+            statusEl.innerText = "🎙️ Listening...";
+            try { recognition.start(); } catch (e) { console.warn(e); }
+          }
+        }
+      } catch (err) {
+        console.error("Fetch error:", err);
+        statusEl.innerText = "Network error. Check console.";
+        waitingForBot = false;
+        if (isRunning && recognition) {
+          try { recognition.start(); } catch (e) { console.warn(e); }
+        }
+      }
+    }
+
+    // ===== Start / Stop handlers =====
+    async function startConversation() {
+      if (isRunning) return;
+
+      initRecognition();
+      if (!recognition) return;
+
+      isRunning = true;
+      messages = [];  // reset conversation if you want
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      statusEl.innerText = "Starting...";
+
+      // Bot speaks first
+      await playWelcomeFromBot();
+      if (!isRunning) return;  // user may have pressed Stop meanwhile
+
+      statusEl.innerText = "🎙️ Listening...";
+      startRecognitionLoop();
+    }
+
+    function stopConversation() {
+      isRunning = false;
+      waitingForBot = false;
+
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      statusEl.innerText = "Stopped. Click Start to talk again.";
+
+      if (recognition) {
+        try { recognition.stop(); } catch (e) { console.warn(e); }
+      }
+      if (audioPlayer) {
+        audioPlayer.pause();
+      }
+    }
+
+    // ===== Wire up buttons =====
+    startBtn.addEventListener("click", () => {
+      // run async start without unhandled promise
+      startConversation().catch(err => console.error(err));
+    });
+    stopBtn.addEventListener("click", stopConversation);
+  </script>
+</body>
+</html>

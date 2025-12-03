@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Local Voice Test for Order #{{ order.id }}</h1>
+
+  <h2>Bangla Call Script (what bot will say first)</h2>
+  <p class="script" id="bot-script">{{ order.script }}</p>
+
+  <div style="margin-top:20px;">
+    <button id="btn-play-bot">▶ Bot: Play Script</button>
+    <button id="btn-record" style="margin-left:10px;">🎙 Start Listening</button>
+  </div>
+
+  <div style="margin-top:20px;">
+    <h3>Your speech (recognized text)</h3>
+    <p id="user-text" style="min-height:24px;color:#374151;"></p>
+  </div>
+
+  <div style="margin-top:20px;">
+    <h3>Bot reply</h3>
+    <p id="bot-reply-text" style="min-height:24px;color:#111827;font-weight:600;"></p>
+  </div>
+
+  <p style="margin-top:20px;">
+    <a href="{{ url_for('order_detail', order_id=order.id) }}">← Back to order</a>
+  </p>
+</section>
+
+<script>
+  // ---- Helper: speak Bangla using browser TTS ----
+  function speakBangla(text) {
+    const utter = new SpeechSynthesisUtterance(text);
+    // Try to pick a Bangla-ish voice if available, otherwise default
+    const voices = window.speechSynthesis.getVoices();
+    const bnVoice =
+      voices.find(v => v.lang && v.lang.toLowerCase().startsWith("bn")) ||
+      voices.find(v => v.lang && v.lang.toLowerCase().startsWith("en-in")) ||
+      null;
+    if (bnVoice) utter.voice = bnVoice;
+    utter.rate = 1.0;
+    utter.pitch = 1.0;
+    window.speechSynthesis.speak(utter);
+  }
+
+  // ---- Play initial bot script ----
+  const scriptText = document.getElementById("bot-script").innerText;
+  document.getElementById("btn-play-bot").addEventListener("click", () => {
+    speakBangla(scriptText);
+  });
+
+  // ---- Speech recognition (Chrome-only, experimental) ----
+  let recognition = null;
+  if ("webkitSpeechRecognition" in window) {
+    recognition = new webkitSpeechRecognition();
+    recognition.lang = "bn-BD"; // Bangla, adjust if needed
+    recognition.continuous = false;
+    recognition.interimResults = false;
+  } else if ("SpeechRecognition" in window) {
+    recognition = new SpeechRecognition();
+    recognition.lang = "bn-BD";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+  }
+
+  const btnRecord = document.getElementById("btn-record");
+  const userTextEl = document.getElementById("user-text");
+  const botReplyEl = document.getElementById("bot-reply-text");
+
+  if (!recognition) {
+    btnRecord.disabled = true;
+    btnRecord.innerText = "Speech recognition not supported in this browser";
+  } else {
+    btnRecord.addEventListener("click", () => {
+      botReplyEl.innerText = "";
+      userTextEl.innerText = "Listening… please speak now.";
+      recognition.start();
+    });
+
+    recognition.onresult = function (event) {
+      const transcript = event.results[0][0].transcript;
+      userTextEl.innerText = transcript;
+
+      // Send to backend for intent classification + reply
+      fetch("{{ url_for('api_interpret') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: transcript }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          botReplyEl.innerText =
+            data.reply + "  (intent: " + data.decision + ")";
+          speakBangla(data.reply);
+        })
+        .catch((err) => {
+          console.error(err);
+          botReplyEl.innerText =
+            "দুঃখিত, কোনো সমস্যা হয়েছে। পরে আবার চেষ্টা করুন।";
+          speakBangla(
+            "দুঃখিত, কোনো সমস্যা হয়েছে। পরে আবার চেষ্টা করুন।"
+          );
+        });
+    };
+
+    recognition.onerror = function (event) {
+      userTextEl.innerText = "Recognition error: " + event.error;
+    };
+  }
+</script>
+{% endblock %}
