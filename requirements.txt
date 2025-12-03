@@ -6,3 +6,4 @@ TTS
 groq
 gunicorn
 python-dotenv
+gTTS

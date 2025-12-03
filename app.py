@@ -5,6 +5,7 @@ import uuid
 from pydub import AudioSegment
 from num2words import num2words
 from datetime import datetime
+from gtts import gTTS
 from TTS.api import TTS 
 from flask import (
     Flask,
@@ -18,17 +19,29 @@ from flask import (
 )
 from dotenv import load_dotenv
 import random 
-
-
-
 from groq import Groq
 from signalwire.rest import Client as SignalWireClient
 from signalwire.voice_response import VoiceResponse, Gather
 
-# -------------------------------------------------
-# Environment & basic setup
-# -------------------------------------------------
+
+# Load .env before reading flags
 load_dotenv()
+
+# Enable Coqui only when USE_COQUI_TTS=true in .env
+USE_COQUI_TTS = os.getenv("USE_COQUI_TTS", "false").lower() == "true"
+
+# ✅ Debug check — this MUST show False on Railway
+print("DEBUG USE_COQUI_TTS =", USE_COQUI_TTS)
+
+BN_MODEL_NAME = "tts_models/bn/custom/vits-female"
+
+bn_tts = None
+if USE_COQUI_TTS:
+    print("🔊 Loading Coqui Bangla TTS model (vits-female)...")
+    bn_tts = TTS(BN_MODEL_NAME)
+else:
+    print("🎤 Using gTTS (Coqui disabled or Railway environment)")
+
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev_secret")
@@ -47,11 +60,7 @@ ELEVEN_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVEN_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
 
-BN_MODEL_NAME = "tts_models/bn/custom/vits-female"
 
-print("Loading Coqui Bangla TTS model (vits-female)... This may take a minute the first time.")
-
-bn_tts = TTS(BN_MODEL_NAME)
 
 
 # SignalWire
@@ -597,39 +606,54 @@ def postprocess_bot_text(text: str) -> str:
 
 def synthesize_bangla_tts(text: str) -> str:
     """
-    Generate Bangla TTS audio from given text and return the static URL.
-    Shared by normal replies and the initial welcome message.
+    Generate Bangla speech for the given text and return the static URL.
+    - If USE_COQUI_TTS=true and bn_tts is loaded  → use Coqui VITS (WAV).
+    - Otherwise                               → use gTTS (MP3, lightweight).
     """
-    tts_dir = os.path.join("static", "tts")
-    os.makedirs(tts_dir, exist_ok=True)
-    filename = f"tts_{uuid.uuid4().hex}.wav"
-    filepath = os.path.join(tts_dir, filename)
-
-    # Light cleanup to avoid too many hard stops that cause long pauses
+    # Light cleanup: keep your existing logic
     cleaned = text
-
-    # Convert specific patterns to commas for smoother flow
     cleaned = cleaned.replace("। তারপর", ", তারপর")
-
-    # Convert digits (120, ১২০, 1200) to Bangla words for clear speaking
     cleaned = normalize_numbers_for_bangla_tts(cleaned)
 
-    # 1) Generate raw Bangla TTS with cleaned text
-    bn_tts.tts_to_file(text=cleaned, file_path=filepath)
+    # Ensure static/tts exists
+    tts_dir = os.path.join("static", "tts")
+    os.makedirs(tts_dir, exist_ok=True)
 
-    # 2) Normalize volume to a consistent loudness
-    audio = AudioSegment.from_file(filepath, format="wav")
-    target_dBFS = -16.0  # typical clear-voice loudness
-    change_in_dBFS = target_dBFS - audio.dBFS
-    normalized_audio = audio.apply_gain(change_in_dBFS)
+    # Unique filename
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
 
-    # 3) Optional: light fade-in / fade-out to avoid clicks
-    normalized_audio = normalized_audio.fade_in(20).fade_out(50)
+    if USE_COQUI_TTS and bn_tts is not None:
+        # ---------- Coqui path (local dev, heavy model) ----------
+        filename = f"tts_{ts}.wav"
+        filepath = os.path.join(tts_dir, filename)
 
-    # 4) Overwrite the file with normalized audio
-    normalized_audio.export(filepath, format="wav")
+        # 1) Generate raw Bangla TTS with cleaned text
+        bn_tts.tts_to_file(text=cleaned, file_path=filepath)
 
+        # 2) Normalize volume
+        audio = AudioSegment.from_file(filepath, format="wav")
+        target_dBFS = -16.0
+        change_in_dBFS = target_dBFS - audio.dBFS
+        normalized_audio = audio.apply_gain(change_in_dBFS)
+
+        # 3) Soft fade in/out
+        normalized_audio = normalized_audio.fade_in(20).fade_out(50)
+
+        # 4) Save back
+        normalized_audio.export(filepath, format="wav")
+
+    else:
+        # ---------- gTTS path (Railway, lightweight) ----------
+        filename = f"tts_{ts}.mp3"
+        filepath = os.path.join(tts_dir, filename)
+
+        # gTTS handles Bangla with lang="bn"
+        tts = gTTS(cleaned, lang="bn")
+        tts.save(filepath)
+
+    # Return URL that frontend can play
     return url_for("static", filename=f"tts/{filename}")
+
 
 @app.route("/api/local_bot_welcome", methods=["GET"])
 def api_local_bot_welcome():
