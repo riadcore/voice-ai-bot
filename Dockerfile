@@ -29,5 +29,9 @@ COPY . .
 # Expose port
 EXPOSE 5000
 
-# Run app using gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+
+# Use a single worker and a higher timeout because Coqui TTS is heavy
+ENV WEB_CONCURRENCY=1
+
+CMD ["gunicorn", "app:app", "-b", "0.0.0.0:5000", "-w", "1", "--timeout", "180"]
+
